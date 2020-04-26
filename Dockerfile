@@ -23,4 +23,7 @@ RUN cargo install --target x86_64-unknown-linux-musl --path .
 FROM scratch
 COPY --from=build /usr/local/cargo/bin/twitter-clone-rust .
 USER 1000
+
+EXPOSE 9090
+
 CMD ["./twitter-clone-rust"]
