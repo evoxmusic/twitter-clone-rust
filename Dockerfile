@@ -14,7 +14,7 @@ RUN RUSTFLAGS=-Clinker=musl-gcc cargo build --release --target=x86_64-unknown-li
 
 FROM alpine:latest
 
-RUN addgroup -g 1000 myapp
+RUN addgroup -g 1000 app
 
 RUN adduser -D -s /bin/sh -u 1000 -G app app
 
@@ -24,7 +24,7 @@ COPY --from=cargo-build /usr/src/app/target/x86_64-unknown-linux-musl/release/ap
 
 RUN chown app:app app
 
-USER myapp
+USER app
 
 EXPOSE 9090
 
