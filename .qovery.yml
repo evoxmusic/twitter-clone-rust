@@ -1,0 +1,15 @@
+application:
+  name: twitter-clone-rust
+  project: Twitter-Clone
+  cloud_region: aws/eu-west-3
+  publicly_accessible: true
+databases:
+- type: postgresql
+  version: "11.5"
+  name: my-postgresql-8628210
+routers:
+- name: main
+  routes:
+  - application_name: twitter-clone-rust
+    paths:
+    - /
