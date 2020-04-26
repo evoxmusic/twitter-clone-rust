@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/rust-url-shortener.iml" filepath="$PROJECT_DIR$/rust-url-shortener.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/twitter-clone-rust.iml" filepath="$PROJECT_DIR$/.idea/twitter-clone-rust.iml" />
     </modules>
   </component>
 </project>
