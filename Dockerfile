@@ -1,7 +1,7 @@
 # build stage
 FROM rust:latest as cargo-build
 
-RUN apt-get update && apt-get install musl-tools -y
+RUN apt-get update && apt-get install libpq-dev musl-tools -y
 RUN rustup target add x86_64-unknown-linux-musl
 
 WORKDIR /usr/src/app
@@ -12,6 +12,8 @@ RUN RUSTFLAGS=-Clinker=musl-gcc cargo build --release --target=x86_64-unknown-li
 
 # final stage
 FROM alpine:latest
+
+RUN apk add postgresql-dev
 
 RUN addgroup -g 1000 app
 RUN adduser -D -s /bin/sh -u 1000 -G app app
