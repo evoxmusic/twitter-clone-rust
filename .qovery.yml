@@ -9,6 +9,9 @@ databases:
   name: my-postgresql-8628210
 routers:
 - name: main
+  custom_domains:
+    - branch: master
+      domain: twitter.qvy.io
   routes:
   - application_name: twitter-clone-rust
     paths:

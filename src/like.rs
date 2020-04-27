@@ -1,6 +1,7 @@
 use actix_web::web::Path;
 use actix_web::HttpResponse;
 use chrono::{DateTime, Utc};
+use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
