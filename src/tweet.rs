@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::constants::{APPLICATION_JSON, CONNECTION_POOL_ERROR};
-use crate::like::Like;
+use crate::like::{list_likes, Like};
 use crate::response::Response;
 use crate::{DBPool, DBPooledConnection};
 
@@ -40,6 +40,15 @@ impl Tweet {
             id: Uuid::new_v4(),
             created_at: Utc::now().naive_utc(),
             message: self.message.clone(),
+        }
+    }
+
+    pub fn add_likes(&self, likes: Vec<Like>) -> Self {
+        Self {
+            id: self.id.clone(),
+            created_at: self.created_at.clone(),
+            message: self.message.clone(),
+            likes,
         }
     }
 }
@@ -86,7 +95,7 @@ fn list_tweets(total_tweets: i64, conn: &DBPooledConnection) -> Result<Tweets, E
         .load::<TweetDB>(conn)
     {
         Ok(tws) => tws,
-        Err(err) => vec![],
+        Err(_) => vec![],
     };
 
     Ok(Tweets {
@@ -114,7 +123,7 @@ fn create_tweet(tweet: Tweet, conn: &DBPooledConnection) -> Result<Tweet, Error>
     use crate::schema::tweets::dsl::*;
 
     let tweet_db = tweet.to_tweet_db();
-    diesel::insert_into(tweets).values(&tweet_db).execute(conn);
+    let _ = diesel::insert_into(tweets).values(&tweet_db).execute(conn);
 
     Ok(tweet_db.to_tweet())
 }
@@ -124,7 +133,7 @@ fn delete_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<(), Error> {
 
     let res = diesel::delete(tweets.filter(id.eq(_id))).execute(conn);
     match res {
-        Ok(tweet_db) => Ok(()),
+        Ok(_) => Ok(()),
         Err(err) => Err(err),
     }
 }
@@ -133,12 +142,23 @@ fn delete_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<(), Error> {
 #[get("/tweets")]
 pub async fn list(pool: Data<DBPool>) -> HttpResponse {
     let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut tweets = web::block(move || list_tweets(50, &conn)).await.unwrap();
 
-    let tweets = web::block(move || list_tweets(50, &conn)).await;
+    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let tweets_with_likes = Tweets {
+        results: tweets
+            .results
+            .iter_mut()
+            .map(|t| {
+                let _likes = list_likes(Uuid::from_str(t.id.as_str()).unwrap(), &conn).unwrap();
+                t.add_likes(_likes.results)
+            })
+            .collect::<Vec<Tweet>>(),
+    };
 
     HttpResponse::Ok()
         .content_type(APPLICATION_JSON)
-        .json(tweets.unwrap())
+        .json(tweets_with_likes)
 }
 
 /// create a tweet `/tweets`
@@ -160,14 +180,18 @@ pub async fn create(tweet_req: Json<TweetRequest>, pool: Data<DBPool>) -> HttpRe
 #[get("/tweets/{id}")]
 pub async fn get(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
     let conn = pool.get().expect(CONNECTION_POOL_ERROR);
-
     let tweet =
         web::block(move || find_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
 
     match tweet {
-        Ok(tweet) => HttpResponse::Ok()
-            .content_type(APPLICATION_JSON)
-            .json(tweet),
+        Ok(tweet) => {
+            let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+            let _likes = list_likes(Uuid::from_str(tweet.id.as_str()).unwrap(), &conn).unwrap();
+
+            HttpResponse::Ok()
+                .content_type(APPLICATION_JSON)
+                .json(tweet.add_likes(_likes.results))
+        }
         _ => HttpResponse::NoContent()
             .content_type(APPLICATION_JSON)
             .await
@@ -181,7 +205,7 @@ pub async fn delete(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
     // in any case return status 204
     let conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    web::block(move || delete_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
+    let _ = web::block(move || delete_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
 
     HttpResponse::NoContent()
         .content_type(APPLICATION_JSON)

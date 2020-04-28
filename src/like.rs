@@ -10,7 +10,7 @@ use crate::response::Response;
 use crate::{DBPool, DBPooledConnection};
 
 use super::schema::likes;
-use diesel::query_dsl::methods::{FilterDsl, LimitDsl, OrderDsl};
+use diesel::query_dsl::methods::{FilterDsl, OrderDsl};
 use diesel::result::Error;
 use std::str::FromStr;
 
@@ -65,7 +65,7 @@ pub fn list_likes(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<Likes, E
         .load::<LikeDB>(conn)
     {
         Ok(lks) => lks,
-        Err(err) => vec![],
+        Err(_) => vec![],
     };
 
     Ok(Likes {
@@ -80,7 +80,7 @@ pub fn create_like(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<Like, E
     use crate::schema::likes::dsl::*;
 
     let like = Like::new();
-    diesel::insert_into(likes)
+    let _ = diesel::insert_into(likes)
         .values(like.to_like_db(_tweet_id))
         .execute(conn);
 
@@ -105,7 +105,7 @@ pub fn delete_like(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<(), Err
 
     let res = diesel::delete(likes.filter(id.eq(like_id))).execute(conn);
     match res {
-        Ok(tweet_db) => Ok(()),
+        Ok(_) => Ok(()),
         Err(err) => Err(err),
     }
 }
@@ -148,7 +148,7 @@ pub async fn minus_one(path: Path<(String,)>, pool: Data<DBPool>) -> HttpRespons
     // in any case return status 204
     let conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    web::block(move || delete_like(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
+    let _ = web::block(move || delete_like(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
 
     HttpResponse::NoContent()
         .content_type(APPLICATION_JSON)

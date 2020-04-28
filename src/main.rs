@@ -6,9 +6,8 @@ extern crate diesel;
 use std::{env, io};
 
 use actix_web::{middleware, App, HttpServer};
-use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
-use diesel::{Connection, PgConnection};
+use diesel::PgConnection;
 use r2d2::{Pool, PooledConnection};
 
 mod constants;
