@@ -119,6 +119,16 @@ fn create_tweet(tweet: Tweet, conn: &DBPooledConnection) -> Result<Tweet, Error>
     Ok(tweet_db.to_tweet())
 }
 
+fn delete_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<(), Error> {
+    use crate::schema::tweets::dsl::*;
+
+    let res = diesel::delete(tweets.filter(id.eq(_id))).execute(conn);
+    match res {
+        Ok(tweet_db) => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
 /// list 50 last tweets `/tweets`
 #[get("/tweets")]
 pub async fn list(pool: Data<DBPool>) -> HttpResponse {
@@ -131,26 +141,18 @@ pub async fn list(pool: Data<DBPool>) -> HttpResponse {
         .json(tweets.unwrap())
 }
 
-fn delete_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<(), Error> {
-    use crate::schema::tweets::dsl::*;
-
-    let res = diesel::delete(tweets.filter(id.eq(_id))).execute(conn);
-    match res {
-        Ok(tweet_db) => Ok(()),
-        Err(err) => Err(err),
-    }
-}
-
 /// create a tweet `/tweets`
 #[post("/tweets")]
 pub async fn create(tweet_req: Json<TweetRequest>, pool: Data<DBPool>) -> HttpResponse {
     let conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    match create_tweet(tweet_req.to_tweet().unwrap(), &conn) {
+    let tweet = web::block(move || create_tweet(tweet_req.to_tweet().unwrap(), &conn)).await;
+
+    match tweet {
         Ok(tweet) => HttpResponse::Created()
             .content_type(APPLICATION_JSON)
             .json(tweet),
-        Err(_) => HttpResponse::NoContent().await.unwrap(),
+        _ => HttpResponse::NoContent().await.unwrap(),
     }
 }
 
@@ -159,13 +161,14 @@ pub async fn create(tweet_req: Json<TweetRequest>, pool: Data<DBPool>) -> HttpRe
 pub async fn get(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
     let conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    let tweet = find_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn);
+    let tweet =
+        web::block(move || find_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
 
     match tweet {
         Ok(tweet) => HttpResponse::Ok()
             .content_type(APPLICATION_JSON)
             .json(tweet),
-        Err(_) => HttpResponse::NoContent()
+        _ => HttpResponse::NoContent()
             .content_type(APPLICATION_JSON)
             .await
             .unwrap(),
@@ -178,7 +181,7 @@ pub async fn delete(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
     // in any case return status 204
     let conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    delete_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn);
+    web::block(move || delete_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
 
     HttpResponse::NoContent()
         .content_type(APPLICATION_JSON)
