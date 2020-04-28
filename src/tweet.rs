@@ -2,7 +2,7 @@ use actix_web::web::{Data, Json, Path};
 use actix_web::{web, HttpResponse};
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use diesel::result::Error;
-use diesel::{Insertable, Queryable, RunQueryDsl};
+use diesel::{ExpressionMethods, Insertable, Queryable, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,6 +12,8 @@ use crate::response::Response;
 use crate::{DBPool, DBPooledConnection};
 
 use super::schema::tweets;
+use diesel::query_dsl::methods::{FilterDsl, LimitDsl, OrderDsl};
+use std::str::FromStr;
 
 pub type Tweets = Response<Tweet>;
 
@@ -75,10 +77,14 @@ impl TweetRequest {
     }
 }
 
-fn list_tweets(conn: &DBPooledConnection) -> Result<Tweets, Error> {
+fn list_tweets(total_tweets: i64, conn: &DBPooledConnection) -> Result<Tweets, Error> {
     use crate::schema::tweets::dsl::*;
 
-    let _tweets = match tweets.load::<TweetDB>(conn) {
+    let _tweets = match tweets
+        .order(created_at.desc())
+        .limit(total_tweets)
+        .load::<TweetDB>(conn)
+    {
         Ok(tws) => tws,
         Err(err) => vec![],
     };
@@ -89,6 +95,19 @@ fn list_tweets(conn: &DBPooledConnection) -> Result<Tweets, Error> {
             .map(|t| t.to_tweet())
             .collect::<Vec<Tweet>>(),
     })
+}
+
+fn find_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<Tweet, Error> {
+    use crate::schema::tweets::dsl::*;
+
+    let res = tweets.filter(id.eq(_id)).load::<TweetDB>(conn);
+    match res {
+        Ok(tweets_db) => match tweets_db.first() {
+            Some(tweet_db) => Ok(tweet_db.to_tweet()),
+            _ => Err(Error::NotFound),
+        },
+        Err(err) => Err(err),
+    }
 }
 
 fn create_tweet(tweet: Tweet, conn: &DBPooledConnection) -> Result<Tweet, Error> {
@@ -103,14 +122,23 @@ fn create_tweet(tweet: Tweet, conn: &DBPooledConnection) -> Result<Tweet, Error>
 /// list 50 last tweets `/tweets`
 #[get("/tweets")]
 pub async fn list(pool: Data<DBPool>) -> HttpResponse {
-    // TODO find the last 50 tweets and return them
     let conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    let tweets = web::block(move || list_tweets(&conn)).await;
+    let tweets = web::block(move || list_tweets(50, &conn)).await;
 
     HttpResponse::Ok()
         .content_type(APPLICATION_JSON)
         .json(tweets.unwrap())
+}
+
+fn delete_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<(), Error> {
+    use crate::schema::tweets::dsl::*;
+
+    let res = diesel::delete(tweets.filter(id.eq(_id))).execute(conn);
+    match res {
+        Ok(tweet_db) => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 /// create a tweet `/tweets`
@@ -128,15 +156,16 @@ pub async fn create(tweet_req: Json<TweetRequest>, pool: Data<DBPool>) -> HttpRe
 
 /// find a tweet by its id `/tweets/{id}`
 #[get("/tweets/{id}")]
-pub async fn get(path: Path<(String,)>) -> HttpResponse {
-    // TODO find tweet a tweet by ID and return it
-    let found_tweet: Option<Tweet> = None;
+pub async fn get(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
+    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    match found_tweet {
-        Some(tweet) => HttpResponse::Ok()
+    let tweet = find_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn);
+
+    match tweet {
+        Ok(tweet) => HttpResponse::Ok()
             .content_type(APPLICATION_JSON)
             .json(tweet),
-        None => HttpResponse::NoContent()
+        Err(_) => HttpResponse::NoContent()
             .content_type(APPLICATION_JSON)
             .await
             .unwrap(),
@@ -145,9 +174,11 @@ pub async fn get(path: Path<(String,)>) -> HttpResponse {
 
 /// delete a tweet by its id `/tweets/{id}`
 #[delete("/tweets/{id}")]
-pub async fn delete(path: Path<(String,)>) -> HttpResponse {
-    // TODO delete tweet by ID
+pub async fn delete(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
     // in any case return status 204
+    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+
+    delete_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn);
 
     HttpResponse::NoContent()
         .content_type(APPLICATION_JSON)
