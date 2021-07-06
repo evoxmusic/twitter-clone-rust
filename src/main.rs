@@ -25,7 +25,7 @@ async fn main() -> io::Result<()> {
     env_logger::init();
 
     // set up database connection pool
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL");
+    let database_url = env::var("QOVERY_DATABASE_MY_PQL_DB_URI").expect("DATABASE_URL");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
     let pool = r2d2::Pool::builder()
         .build(manager)
