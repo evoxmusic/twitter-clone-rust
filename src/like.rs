@@ -39,8 +39,8 @@ impl Like {
     }
 }
 
-#[table_name = "likes"]
 #[derive(Queryable, Insertable)]
+#[diesel(table_name = likes)]
 pub struct LikeDB {
     pub id: Uuid,
     pub created_at: NaiveDateTime,
@@ -56,7 +56,7 @@ impl LikeDB {
     }
 }
 
-pub fn list_likes(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<Likes, Error> {
+pub fn list_likes(_tweet_id: Uuid, conn: &mut DBPooledConnection) -> Result<Likes, Error> {
     use crate::schema::likes::dsl::*;
 
     let _likes: Vec<LikeDB> = match likes
@@ -76,7 +76,7 @@ pub fn list_likes(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<Likes, E
     })
 }
 
-pub fn create_like(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<Like, Error> {
+pub fn create_like(_tweet_id: Uuid, conn: &mut DBPooledConnection) -> Result<Like, Error> {
     use crate::schema::likes::dsl::*;
 
     let like = Like::new();
@@ -87,7 +87,7 @@ pub fn create_like(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<Like, E
     Ok(like)
 }
 
-pub fn delete_like(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<(), Error> {
+pub fn delete_like(_tweet_id: Uuid, conn: &mut DBPooledConnection) -> Result<(), Error> {
     use crate::schema::likes::dsl::*;
 
     let _likes = list_likes(_tweet_id, conn);
@@ -113,10 +113,10 @@ pub fn delete_like(_tweet_id: Uuid, conn: &DBPooledConnection) -> Result<(), Err
 /// list last 50 likes from a tweet `/tweets/{id}/likes`
 #[get("/tweets/{id}/likes")]
 pub async fn list(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
-    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
     let likes =
-        web::block(move || list_likes(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
+        web::block(move || list_likes(Uuid::from_str(path.0.as_str()).unwrap(), &mut conn)).await.unwrap();
 
     match likes {
         Ok(likes) => HttpResponse::Ok()
@@ -131,10 +131,10 @@ pub async fn list(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
 /// add one like to a tweet `/tweets/{id}/likes`
 #[post("/tweets/{id}/likes")]
 pub async fn plus_one(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
-    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
     let like =
-        web::block(move || create_like(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
+        web::block(move || create_like(Uuid::from_str(path.0.as_str()).unwrap(), &mut conn)).await.unwrap();
 
     match like {
         Ok(like) => HttpResponse::Ok().content_type(APPLICATION_JSON).json(like),
@@ -146,9 +146,9 @@ pub async fn plus_one(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse
 #[delete("/tweets/{id}/likes")]
 pub async fn minus_one(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
     // in any case return status 204
-    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    let _ = web::block(move || delete_like(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
+    let _ = web::block(move || delete_like(Uuid::from_str(path.0.as_str()).unwrap(), &mut conn)).await;
 
     HttpResponse::NoContent()
         .content_type(APPLICATION_JSON)

@@ -53,8 +53,8 @@ impl Tweet {
     }
 }
 
-#[table_name = "tweets"]
 #[derive(Queryable, Insertable)]
+#[diesel(table_name = tweets)]
 pub struct TweetDB {
     pub id: Uuid,
     pub created_at: NaiveDateTime,
@@ -86,7 +86,7 @@ impl TweetRequest {
     }
 }
 
-fn list_tweets(total_tweets: i64, conn: &DBPooledConnection) -> Result<Tweets, Error> {
+fn list_tweets(total_tweets: i64, conn: &mut DBPooledConnection) -> Result<Tweets, Error> {
     use crate::schema::tweets::dsl::*;
 
     let _tweets = match tweets
@@ -106,7 +106,7 @@ fn list_tweets(total_tweets: i64, conn: &DBPooledConnection) -> Result<Tweets, E
     })
 }
 
-fn find_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<Tweet, Error> {
+fn find_tweet(_id: Uuid, conn: &mut DBPooledConnection) -> Result<Tweet, Error> {
     use crate::schema::tweets::dsl::*;
 
     let res = tweets.filter(id.eq(_id)).load::<TweetDB>(conn);
@@ -119,7 +119,7 @@ fn find_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<Tweet, Error> {
     }
 }
 
-fn create_tweet(tweet: Tweet, conn: &DBPooledConnection) -> Result<Tweet, Error> {
+fn create_tweet(tweet: Tweet, conn: &mut DBPooledConnection) -> Result<Tweet, Error> {
     use crate::schema::tweets::dsl::*;
 
     let tweet_db = tweet.to_tweet_db();
@@ -128,7 +128,7 @@ fn create_tweet(tweet: Tweet, conn: &DBPooledConnection) -> Result<Tweet, Error>
     Ok(tweet_db.to_tweet())
 }
 
-fn delete_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<(), Error> {
+fn delete_tweet(_id: Uuid, conn: &mut DBPooledConnection) -> Result<(), Error> {
     use crate::schema::tweets::dsl::*;
 
     let res = diesel::delete(tweets.filter(id.eq(_id))).execute(conn);
@@ -141,16 +141,16 @@ fn delete_tweet(_id: Uuid, conn: &DBPooledConnection) -> Result<(), Error> {
 /// list 50 last tweets `/tweets`
 #[get("/tweets")]
 pub async fn list(pool: Data<DBPool>) -> HttpResponse {
-    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
-    let mut tweets = web::block(move || list_tweets(50, &conn)).await.unwrap();
+    let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut tweets = web::block(move || list_tweets(50, &mut conn)).await.unwrap().unwrap();
 
-    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
     let tweets_with_likes = Tweets {
         results: tweets
             .results
             .iter_mut()
             .map(|t| {
-                let _likes = list_likes(Uuid::from_str(t.id.as_str()).unwrap(), &conn).unwrap();
+                let _likes = list_likes(Uuid::from_str(t.id.as_str()).unwrap(), &mut conn).unwrap();
                 t.add_likes(_likes.results)
             })
             .collect::<Vec<Tweet>>(),
@@ -164,9 +164,9 @@ pub async fn list(pool: Data<DBPool>) -> HttpResponse {
 /// create a tweet `/tweets`
 #[post("/tweets")]
 pub async fn create(tweet_req: Json<TweetRequest>, pool: Data<DBPool>) -> HttpResponse {
-    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    let tweet = web::block(move || create_tweet(tweet_req.to_tweet().unwrap(), &conn)).await;
+    let tweet = web::block(move || create_tweet(tweet_req.to_tweet().unwrap(), &mut conn)).await.unwrap();
 
     match tweet {
         Ok(tweet) => HttpResponse::Created()
@@ -179,14 +179,14 @@ pub async fn create(tweet_req: Json<TweetRequest>, pool: Data<DBPool>) -> HttpRe
 /// find a tweet by its id `/tweets/{id}`
 #[get("/tweets/{id}")]
 pub async fn get(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
-    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
     let tweet =
-        web::block(move || find_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
+        web::block(move || find_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &mut conn)).await.unwrap();
 
     match tweet {
         Ok(tweet) => {
-            let conn = pool.get().expect(CONNECTION_POOL_ERROR);
-            let _likes = list_likes(Uuid::from_str(tweet.id.as_str()).unwrap(), &conn).unwrap();
+            let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
+            let _likes = list_likes(Uuid::from_str(tweet.id.as_str()).unwrap(), &mut conn).unwrap();
 
             HttpResponse::Ok()
                 .content_type(APPLICATION_JSON)
@@ -203,9 +203,9 @@ pub async fn get(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
 #[delete("/tweets/{id}")]
 pub async fn delete(path: Path<(String,)>, pool: Data<DBPool>) -> HttpResponse {
     // in any case return status 204
-    let conn = pool.get().expect(CONNECTION_POOL_ERROR);
+    let mut conn = pool.get().expect(CONNECTION_POOL_ERROR);
 
-    let _ = web::block(move || delete_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &conn)).await;
+    let _ = web::block(move || delete_tweet(Uuid::from_str(path.0.as_str()).unwrap(), &mut conn)).await;
 
     HttpResponse::NoContent()
         .content_type(APPLICATION_JSON)

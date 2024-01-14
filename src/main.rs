@@ -3,9 +3,11 @@ extern crate actix_web;
 #[macro_use]
 extern crate diesel;
 
+use dotenvy::dotenv;
 use std::{env, io};
 
 use actix_web::{middleware, App, HttpServer};
+use actix_web::web::Data;
 use diesel::r2d2::ConnectionManager;
 use diesel::PgConnection;
 use r2d2::{Pool, PooledConnection};
@@ -24,6 +26,7 @@ async fn main() -> io::Result<()> {
     env::set_var("RUST_LOG", "actix_web=debug,actix_server=info");
     env_logger::init();
 
+    dotenv().ok();
     // set up database connection pool
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL");
     let manager = ConnectionManager::<PgConnection>::new(database_url);
@@ -34,7 +37,7 @@ async fn main() -> io::Result<()> {
     HttpServer::new(move || {
         App::new()
             // Set up DB pool to be used with web::Data<Pool> extractor
-            .data(pool.clone())
+            .app_data(Data::new(pool.clone()))
             // enable logger - always register actix-web Logger middleware last
             .wrap(middleware::Logger::default())
             // register HTTP requests handlers
